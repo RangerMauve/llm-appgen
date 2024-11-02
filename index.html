@@ -22,6 +22,10 @@
         height: 80vh;
     }
 
+    textarea {
+        min-height: 30vh;
+    }
+
     a[href=""] {
         display: none;
     }
@@ -53,6 +57,7 @@ Have an eye emoji in a marquee tag, make the font size get bigger when you click
     const USER = 'user'
     const SYSTEM_PROMPT = `You are a programmer's assistant that helps users create simple web pages.`
     const PREFIX_MESSAGE = { role: SYSTEM, content: SYSTEM_PROMPT }
+    const STORAGE_ITEM = "llm-appgen"
 
     const CSS_VARS = await(await fetch('agregore://theme/vars.css')).text()
 
@@ -62,6 +67,12 @@ Have an eye emoji in a marquee tag, make the font size get bigger when you click
 
     closeLog.onclick = () => logview.close()
     showLog.onclick = showlogs
+
+    if (localStorage.getItem(STORAGE_ITEM)?.trim()) {
+        promptbox.value = localStorage.getItem(STORAGE_ITEM)
+    }
+
+    promptbox.oninput = () => localStorage.setItem(STORAGE_ITEM, promptbox.value.trim())
 
     submitter.onclick = async () => {
         showlogs()
@@ -130,8 +141,8 @@ ${html}
 
             log("Publishing")
             let publishedURL = await publish(metadata.file, final)
-
             log("Published to URL", publishedURL)
+            window.pagelink.href = publishedURL
             logview.close()
         } catch (e) {
             console.error(e.stack)
@@ -339,7 +350,7 @@ Do not provide an example.
             detailElement.innerText = messageText
             logs.appendChild(detailElement)
         }
-        logs.scrollTop = logs.scrollHeight;
+        logview.scrollTop = logview.scrollHeight;
     }
 
     function extractSection(content, startText, endText) {
