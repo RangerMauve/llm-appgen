@@ -1,5 +1,9 @@
 <!DOCTYPE html>
 <title>Local LLM Appgen</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+<meta name=" apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <style>
     @import url(agregore://theme/style.css);
 
@@ -17,12 +21,26 @@
     iframe {
         height: 80vh;
     }
+
+    a[href=""] {
+        display: none;
+    }
+
+    br {
+        display: unset;
+    }
+
+    dd {
+        white-space: pre-wrap;
+    }
 </style>
 <textarea id="promptbox" title="Write your app description here.">
 Have an eye emoji in a marquee tag, make the font size get bigger when you click it on the eye. Increase it by 1em.
 </textarea>
 <fieldset>
     <button id="submitter">Generate!</button>
+    <a id="pagelink" href="">🔗Link</a>
+    <a id="alllinks" href="">All Apps</a>
     <button id="showLog">Open Logs</button>
 </fieldset>
 <iframe title="App preview" id="preview"></iframe>
@@ -37,6 +55,10 @@ Have an eye emoji in a marquee tag, make the font size get bigger when you click
     const PREFIX_MESSAGE = { role: SYSTEM, content: SYSTEM_PROMPT }
 
     const CSS_VARS = await(await fetch('agregore://theme/vars.css')).text()
+
+    getOwnDrive().then((url) => {
+        window.alllinks.href = url
+    })
 
     closeLog.onclick = () => logview.close()
     showLog.onclick = showlogs
@@ -74,12 +96,18 @@ Have an eye emoji in a marquee tag, make the font size get bigger when you click
 
             log("Generated CSS", css)
 
-            log("Rendering page!")
+            log("Rendering page")
+
+            const description = JSON.stringify(prompt.replaceAll('\n', ' '))
 
             let final = `<!DOCTYPE html>
 <meta charset="utf-8" />
 <title>${metadata.name}</title>
-<meta name="description" content=${JSON.stringify(prompt)}>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+<meta name=" apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="description" content=${description}>
 <style>
     @import url(agregore://theme/style.css);
     ${css}
@@ -99,6 +127,11 @@ ${html}
             frame.setAttribute("id", "preview")
             preview.replaceWith(frame)
             preview.contentWindow.document.write(final)
+
+            log("Publishing")
+            let publishedURL = await publish(metadata.file, final)
+
+            log("Published to URL", publishedURL)
             logview.close()
         } catch (e) {
             console.error(e.stack)
@@ -166,9 +199,13 @@ Output the JavaScript code inside a code block like this:
             content
         }]
 
-        let result = await chat(messages, { stop: ['```\n'] })
+        let { content: result } = await chat(messages, { stop: ['```\n'] })
 
-        let js = extractSection(result.content, '```javascript', '```')
+        if (result.includes('<script>')) {
+            return extractSection(result, '<script>', `</${'script'}>`)
+        }
+
+        let js = extractSection(result, '```javascript', '```')
 
         return js
     }
@@ -265,8 +302,9 @@ What elements do we need in the HTML and what are their IDs?
 What function names do we need in the JavaScript?
 How should we style layout?
 Do we need user input via forms or keyboard and mouse?
-Don't worry about the colors of the style, another agent will handle that.
-Don't write any code, just the high level description.
+Do not worry about the colors of the style, another agent will handle that.
+Do not write any code, just the high level description.
+Do not provide an example.
 `
         let messages = [PREFIX_MESSAGE, {
             role: USER,
@@ -297,7 +335,8 @@ Don't write any code, just the high level description.
         logs.appendChild(titleElement)
         for (let message of messages) {
             let detailElement = document.createElement("dd")
-            detailElement.innerText = JSON.stringify(message, null, ' ')
+            let messageText = typeof message === 'string' ? message : JSON.stringify(message, null, ' ')
+            detailElement.innerText = messageText
             logs.appendChild(detailElement)
         }
         logs.scrollTop = logs.scrollHeight;
@@ -311,6 +350,39 @@ Don't write any code, just the high level description.
         let data = content.slice(start, end)
 
         return data
+    }
+
+    async function publish(fileName, fileData) {
+        let root = await getOwnDrive()
+        let filePath = new URL(`${fileName}`, root).href
+        let response = await fetch(filePath, {
+            method: 'PUT',
+            body: fileData
+        })
+        if (!response.ok) {
+            throw new Error(`Unable to publish ${fileName}: ${await response.text()}`)
+        }
+        // Avoid memory leak
+        await response.text()
+        console.log(`Published ${fileName} to ${filePath}`)
+        return filePath
+    }
+
+    async function getOwnDrive() {
+        return generateHyperdriveKey('llm-appgen')
+    }
+
+    async function generateHyperdriveKey(name) {
+        try {
+            const response = await fetch(`hyper://localhost/?key=${name}`, { method: 'POST' });
+            if (!response.ok) {
+                throw new Error(`Failed to generate Hyperdrive key: ${response.statusText}`);
+            }
+            return await response.text();  // This returns the hyper:// URL
+        } catch (error) {
+            console.error('Error generating Hyperdrive key:', error);
+            throw error;
+        }
     }
 
     function withRetries(fn, ...args) {
